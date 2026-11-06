@@ -1,0 +1,8 @@
+tensorflow>=2.16
+numpy
+h5py
+pillow
+opencv-python
+pyttsx3
+flask
+nltk            # only for training/evaluate_bleu.py

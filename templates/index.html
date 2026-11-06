@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Image Captioning</title>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
+	<style>
+		.heading { font-weight: 100; font-size: 4em; text-shadow: 1px 1px 5px black; }
+		.result-img { width: 100%; border-radius: 6px; }
+		.text { font-size: 32px; font-style: italic; }
+	</style>
+</head>
+<body>
+	<div class="container">
+		<div class="jumbotron">
+			<div class="container">
+				<h1 class="heading">Image Captioning</h1>
+				<p>Upload your Image to generate a caption..</p>
+			</div>
+		</div>
+
+		<form class="form-inline" enctype="multipart/form-data" action="/" method="POST">
+			<label><b>Image: &nbsp;&nbsp; </b></label>
+			<input type="file" class="form-control" name="image" accept="image/*">
+			&nbsp;<button type="submit" class="btn btn-primary">Submit</button>
+		</form>
+		<br>
+
+		{% if error %}
+			<div class="alert alert-warning">{{ error }}</div>
+		{% endif %}
+
+		{% if results %}
+			<div class="row">
+				<div class="col-sm-4">
+					<img class="result-img" src="{{ results.image }}" alt="uploaded image">
+				</div>
+				<div class="col-sm-8">
+					<p class="text">Generated Caption :</p>
+					<p><b>{{ results.description }}</b></p>
+				</div>
+			</div>
+		{% endif %}
+	</div>
+</body>
+</html>
