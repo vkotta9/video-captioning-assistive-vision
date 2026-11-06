@@ -17,6 +17,7 @@ os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 warnings.filterwarnings("ignore")
 
 import numpy as np
+import tensorflow as tf
 import keras
 from keras.applications.resnet50 import ResNet50, preprocess_input
 
@@ -58,10 +59,19 @@ class Captioner:
         seq_input = self.decoder.inputs[1] if self._img_first else self.decoder.inputs[0]
         self.max_len = seq_input.shape[1] or MAX_LEN
 
+        # Compiled (graph-mode) versions of both networks: ~10x faster than calling the Keras models eagerly,
+        # because the decoder is called once per generated word.
+        self._encode_fn = tf.function(
+            lambda x: self.encoder(x, training=False),
+            input_signature=[tf.TensorSpec([None, *IMG_SIZE, 3], tf.float32)], autograph=False)
+        self._decode_fn = tf.function(
+            lambda img, seq: self.decoder([img, seq] if self._img_first else [seq, img], training=False),
+            input_signature=[tf.TensorSpec([None, 2048], tf.float32), tf.TensorSpec([None, self.max_len], tf.int32)], autograph=False)
+
     # ---------- encoder ----------
     def _encode_rgb(self, rgb_224):
         x = preprocess_input(np.expand_dims(rgb_224.astype("float32"), 0))
-        return self.encoder(x, training=False).numpy().reshape(1, -1)
+        return self._encode_fn(tf.constant(x)).numpy().reshape(1, -1)
 
     def encode_image(self, path):
         img = keras.utils.load_img(path, target_size=IMG_SIZE)
@@ -72,26 +82,52 @@ class Captioner:
         rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         return self._encode_rgb(cv2.resize(rgb, IMG_SIZE, interpolation=cv2.INTER_AREA))
 
-    # ---------- decoder (greedy search, same as the original) ----------
-    def predict_caption(self, photo):
-        in_text = "startseq"
-        for _ in range(self.max_len):
-            seq = [self.word_to_idx[w] for w in in_text.split() if w in self.word_to_idx]
-            seq = np.array([seq + [0] * (self.max_len - len(seq))], dtype="int32")  # post-padding
-            inputs = [photo, seq] if self._img_first else [seq, photo]
-            ypred = self.decoder(inputs, training=False).numpy()
-            word = self.idx_to_word[int(ypred.argmax())]
-            in_text += " " + word
-            if word == "endseq":
-                break
-        words = [w for w in in_text.split()[1:] if w != "endseq"]
+    # ---------- decoder ----------
+    def _pad(self, seqs):
+        out = np.zeros((len(seqs), self.max_len), dtype="int32")      # post-padding, as in training
+        for i, s in enumerate(seqs):
+            s = s[: self.max_len]
+            out[i, : len(s)] = s
+        return out
+
+    def _next_word_probs(self, photo, seqs):
+        img = np.repeat(np.asarray(photo, dtype="float32").reshape(1, -1), len(seqs), axis=0)
+        return self._decode_fn(tf.constant(img), tf.constant(self._pad(seqs))).numpy()
+
+    def predict_caption(self, photo, beam_width=1):
+        """Greedy search (beam_width=1, same as the original) or beam search (beam_width > 1)."""
+        start, end = self.word_to_idx["startseq"], self.word_to_idx["endseq"]
+        if beam_width <= 1:
+            seq = [start]
+            for _ in range(self.max_len):
+                word = int(self._next_word_probs(photo, [seq])[0].argmax())
+                seq.append(word)
+                if word == end:
+                    break
+        else:
+            beams, finished = [([start], 0.0)], []
+            for _ in range(self.max_len):
+                probs = self._next_word_probs(photo, [s for s, _ in beams])
+                candidates = []
+                for (s, score), p in zip(beams, probs):
+                    for w in np.argsort(p)[-beam_width:]:
+                        candidates.append((s + [int(w)], score + float(np.log(p[w] + 1e-12))))
+                candidates.sort(key=lambda c: c[1] / len(c[0]), reverse=True)   # length-normalised
+                beams = []
+                for s, score in candidates[:beam_width]:
+                    (finished if s[-1] == end else beams).append((s, score))
+                if not beams:
+                    break
+            pool = finished or beams
+            seq = max(pool, key=lambda c: c[1] / len(c[0]))[0]
+        words = [self.idx_to_word[i] for i in seq[1:] if i != end and i in self.idx_to_word]
         return " ".join(words)
 
-    def caption_image(self, path):
-        return self.predict_caption(self.encode_image(path))
+    def caption_image(self, path, beam_width=1):
+        return self.predict_caption(self.encode_image(path), beam_width)
 
-    def caption_frame(self, frame_bgr):
-        return self.predict_caption(self.encode_frame(frame_bgr))
+    def caption_frame(self, frame_bgr, beam_width=1):
+        return self.predict_caption(self.encode_frame(frame_bgr), beam_width)
 
 
 _default = None
@@ -109,12 +145,13 @@ def main():
     ap = argparse.ArgumentParser(description="Caption one or more images.")
     ap.add_argument("images", nargs="+")
     ap.add_argument("--model", default=MODEL_PATH, help="decoder model (.h5 original or a retrained .keras)")
+    ap.add_argument("--beam", type=int, default=1, help="beam width (1 = greedy, as in the original)")
     ap.add_argument("--resnet-weights", default="imagenet",
                     help="'imagenet' (auto-download) or a path to local ResNet50 weights")
     args = ap.parse_args()
     cap = Captioner(model_path=args.model, resnet_weights=args.resnet_weights)
     for path in args.images:
-        print(f"{path}: {cap.caption_image(path)}")
+        print(f"{path}: {cap.caption_image(path, args.beam)}")
 
 
 if __name__ == "__main__":

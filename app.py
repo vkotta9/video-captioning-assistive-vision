@@ -45,7 +45,7 @@ def upload_file():
     path = os.path.join(UPLOAD_DIR, name)
     img.save(path)
 
-    caption = get_captioner().caption_image(path)
+    caption = get_captioner().caption_image(path, beam_width=3)
     results = {"image": "/" + path.replace(os.sep, "/"), "description": caption}
     return render_template("index.html", results=results)
 

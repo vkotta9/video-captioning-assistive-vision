@@ -53,7 +53,8 @@ Press **q** or **Esc** to stop.
 
 | Option | Meaning |
 |---|---|
-| `--interval 5` | caption every 5 seconds (default 3, as in the report) |
+| `--interval 1` | caption every second (default 3, as in the report) |
+| `--beam 1` | greedy decoding exactly like the 2021 code (default 3 = beam search, fewer repeated words) |
 | `--source video.mp4` | use a video file instead of the webcam (`--source 1` for a second camera) |
 | `--no-voice` | captions on screen only |
 | `--voice 1` | choose a voice (Windows SAPI5: 0 = male, 1 = female) |
@@ -89,8 +90,13 @@ to 224 × 224 and turned into a 2048-dimensional feature vector.
 | caption so far | 35 word indices → Embedding 50-d (GloVe, frozen) → Dropout 0.3 → LSTM 256 |
 | merge | add → Dense 256 (ReLU) → Dense 1848 (softmax = next word) |
 
-Captions are generated greedily: start with `startseq`, predict the most likely next word, append it, and repeat
-until `endseq` or 35 words.
+Captions start with `startseq`; the model predicts the next word, which is appended, until `endseq` or 35 words.
+The 2021 code took the single most likely word each time (greedy). The rebuild uses beam search by default:
+it keeps the 3 best partial sentences and returns the most likely complete one, which avoids repeats such as
+"leather jacket and leather jacket".
+
+**Speed.** Both networks run as compiled TensorFlow graphs (`tf.function`), so one caption takes about 0.1 s
+(greedy) to 0.3 s (beam search) on a laptop CPU, about 10x faster than calling the Keras models directly.
 
 **Dataset.** Flickr8k (8,091 images, 5 captions each). Captions were lower-cased, punctuation and 1-letter words
 removed, and words seen more than 10 times kept: 1,845 words + `startseq` + `endseq` (`storage/*.pkl`).
@@ -132,6 +138,7 @@ original_2021/         the original code exactly as it was (notebook, caption.py
 * The webcam loop captions every 3 seconds, as described in the report. In the original notebook
   `currentframe += 1` sat outside the loop, so every frame was captioned.
 * Video no longer freezes while a caption is generated or spoken (background threads).
+* About 10x faster captioning (compiled `tf.function` graphs) and optional beam search.
 * Caption shown on the video window; command-line options for interval, voice, source and more.
 * Flask app: safe upload names, file-type check, uploads kept in `static/uploads/`.
 

@@ -92,6 +92,7 @@ def main():
     ap.add_argument("--save-frames", action="store_true", help="save each captioned frame to ./data like the original")
     ap.add_argument("--no-window", action="store_true", help="run without a video window (print captions only)")
     ap.add_argument("--max-captions", type=int, default=0, help="stop after N captions (0 = run until quit)")
+    ap.add_argument("--beam", type=int, default=3, help="beam width (default 3; 1 = greedy, as in the original)")
     ap.add_argument("--model", default=MODEL_PATH, help="decoder model (.h5 original or a retrained .keras)")
     ap.add_argument("--resnet-weights", default="imagenet", help="'imagenet' or path to local ResNet50 weights")
     args = ap.parse_args()
@@ -120,7 +121,7 @@ def main():
                 break
             idx, frame = item
             t0 = time.time()
-            text = captioner.caption_frame(frame)
+            text = captioner.caption_frame(frame, args.beam)
             state["caption"] = text
             state["count"] += 1
             print(f"[{time.strftime('%H:%M:%S')}] frame {idx}: {text}   ({time.time() - t0:.1f}s)", flush=True)
