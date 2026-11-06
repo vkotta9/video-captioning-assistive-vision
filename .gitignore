@@ -9,7 +9,10 @@ venv/
 data/
 static/uploads/*
 !static/uploads/.gitkeep
-retrained/
+retrained*/
+retrained*.zip
+annotations/
+train2017*
 
 # datasets / large downloads
 Flicker8k_Dataset/

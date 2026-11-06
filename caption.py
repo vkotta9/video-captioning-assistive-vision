@@ -43,13 +43,13 @@ def build_encoder(weights="imagenet"):
 
 
 class Captioner:
-    def __init__(self, model_path=MODEL_PATH, storage_dir=None, resnet_weights="imagenet"):
+    def __init__(self, model_path=MODEL_PATH, storage_dir=None, resnet_weights="imagenet", encoder=None):
         if storage_dir is None:
             # vocabulary lives in <project>/storage next to <project>/model_weights/<model>
             sibling = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(model_path))), "storage")
             storage_dir = sibling if os.path.exists(os.path.join(sibling, "word_to_idx.pkl")) else STORAGE_DIR
         self.decoder = keras.models.load_model(model_path, compile=False)
-        self.encoder = build_encoder(resnet_weights)
+        self.encoder = encoder if encoder is not None else build_encoder(resnet_weights)
         with open(os.path.join(storage_dir, "word_to_idx.pkl"), "rb") as f:
             self.word_to_idx = pickle.load(f)
         with open(os.path.join(storage_dir, "idx_to_word.pkl"), "rb") as f:

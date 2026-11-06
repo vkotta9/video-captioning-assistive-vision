@@ -104,31 +104,60 @@ removed, and words seen more than 10 times kept: 1,845 words + `startseq` + `end
 **Voice.** `pyttsx3`, an offline text-to-speech library (SAPI5 on Windows, espeak on Linux; `say` on macOS).
 Captioning and speech run in background threads so the video never freezes.
 
-## Re-training (optional)
+## Re-training on a bigger dataset (MS COCO)
 
-The original training notebook was lost; `training/train_flickr8k.py` reconstructs it with the same
-preprocessing, vocabulary rule and architecture. You need the Flickr8k dataset and, ideally, `glove.6B.50d.txt`.
+The 2021 model learned from only 6,000 Flickr8k photos with a 1,848-word vocabulary, which limits how
+accurate and varied its captions can be. `training/train.py` trains **the same CNN + LSTM design** on
+MS COCO (~118,000 images, ~590,000 captions, ~9,000-word vocabulary), Flickr30k or Flickr8k.
+
+**Easiest: Google Colab (free GPU).** Open
+[`training/train_colab.ipynb`](training/train_colab.ipynb) in Colab
+([open directly](https://colab.research.google.com/github/vkotta9/video-captioning-assistive-vision/blob/main/training/train_colab.ipynb)),
+choose *Runtime → Change runtime type → T4 GPU* and run all cells. It downloads COCO, trains, compares the
+new model with the 2021 one using BLEU scores, and downloads `retrained_coco.zip`. Progress is saved to Google
+Drive, so a disconnected session resumes where it stopped.
+
+Unzip `retrained_coco.zip` inside this project folder, then:
 
 ```bash
-python training/train_flickr8k.py --captions Flickr8k.token.txt --images Flicker8k_Dataset \
-    --train-list Flickr_8k.trainImages.txt --glove glove.6B.50d.txt --epochs 20
-python training/evaluate_bleu.py --captions Flickr8k.token.txt --images Flicker8k_Dataset \
-    --test-list Flickr_8k.testImages.txt --model retrained/model_weights/model_9.keras
-python live_caption.py --model retrained/model_weights/model_9.keras
+python live_caption.py --model retrained_coco/model_weights/best.keras
+python caption.py photo.jpg --model retrained_coco/model_weights/best.keras
+CAPTION_MODEL=retrained_coco/model_weights/best.keras python app.py   # Windows: set CAPTION_MODEL=... then python app.py
 ```
 
-Retrained models go to `retrained/`, so the original model is never overwritten. A GPU (or Google Colab) is
-recommended: encoding 6,000 images and 20 epochs take hours on a CPU.
+**Command line (any machine with a GPU):**
+
+```bash
+# MS COCO 2017 - images are read straight from the zip, no need to extract 19 GB
+python training/train.py --captions annotations/captions_train2017.json --images train2017.zip \
+    --glove glove.6B.50d.txt --out retrained_coco
+
+# Flickr30k (Kaggle results.csv) or Flickr8k (reproduces the 2021 setup)
+python training/train.py --captions results.csv --images flickr30k_images --glove glove.6B.50d.txt --out retrained_f30k
+python training/train.py --captions Flickr8k.token.txt --images Flicker8k_Dataset \
+    --train-list Flickr_8k.trainImages.txt --test-list Flickr_8k.testImages.txt \
+    --glove glove.6B.50d.txt --images-per-batch 3 --out retrained_flickr8k
+
+# BLEU-1..4 for several models on the same test images
+python training/evaluate_bleu.py --captions annotations/captions_train2017.json --images train2017.zip \
+    --models model_weights/model_9.h5 retrained_coco/model_weights/best.keras \
+    --test-list retrained_coco/storage/test_images.txt
+```
+
+What the training script does: cleans captions exactly like the 2021 code, keeps words seen more than 10 times,
+caches ResNet50 features (resumable), holds out 1,000 validation and 1,000 test images, saves `best.keras` by
+validation loss, halves the learning rate when validation stops improving and stops early after 3 bad epochs.
+Re-running the same command resumes an interrupted run. The original `model_weights/model_9.h5` is never touched.
 
 ## Repository layout
 
 ```
 live_caption.py        live webcam captioning + voice (main demo)
-caption.py             Captioner: ResNet50 encoder + LSTM decoder, greedy search
+caption.py             Captioner: ResNet50 encoder + LSTM decoder, greedy / beam search
 app.py, templates/     Flask web app for single images
 model_weights/         model_9.h5 - the original trained decoder (2021)
 storage/               word_to_idx.pkl, idx_to_word.pkl - original vocabulary
-training/              re-training and BLEU evaluation scripts
+training/              train.py (COCO / Flickr30k / Flickr8k), evaluate_bleu.py, train_colab.ipynb
 original_2021/         the original code exactly as it was (notebook, caption.py, app.py)
 ```
 
